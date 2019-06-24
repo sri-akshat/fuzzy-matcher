@@ -55,7 +55,7 @@ be easily configured by passing a lambda expression.
     * _Jaccard_: Gets the Jaccard score using apache commons similarity library
 
 * __Scoring__ : Expects a ```Function<Match, Double>```, this defines functions on how to accumulate scores from Tokens into Elements and from Elements into Documents
-    * _Average_: Adds up total scores of each child matches / total children. This is the default scoring for Elements
+    * _Simple Average_: Adds up total scores of each child matches / total children. This is the default scoring for Elements
     * _Weighted Average_: This is useful for Document Scoring, where users can input weights on elements.
         Example a phone number or email could be considered an important element to identify match between 2 User objects, and we can add weights to such elements.
     * _Exponential Average_: Again useful for Document Scoring, where if more than 1 element match, we can increase the scoring exponentially
@@ -117,7 +117,7 @@ The library is pusblished to maven central
 <dependency>
     <groupId>com.intuit.fuzzymatcher</groupId>
     <artifactId>fuzzy-matcher</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -141,13 +141,15 @@ to be applied at different stages of match.
  
 Below is the list of _Element Types_ available in the library with default _PreProcessing Function_, _Tokenizer Function_ and _Scoring Function_.
 
-|  Element Type | PreProcessing Function | Tokenizer Function | Scoring Function |
-|:-------------:|------------------------|-----------------------|------------------|
-|   ___NAME___  |   namePreprocessing()  |    wordTokenizer()    |     soundex()    |
-|   ___TEXT___  |  removeSpecialChars()  |    wordTokenizer()    |     soundex()    |
-| ___ADDRESS___ | addressPreprocessing() |    wordTokenizer()    |     soundex()    |
-|  ___EMAIL___  |     removeDomain()     |    nGramTokenizer()   |    equality()    |
-|  ___PHONE___  |     numericValue()     |    valueTokenizer()   |   phoneNumber()  |
+|  Element Type | PreProcessing Function | Tokenizer Function    | Scoring Function         |
+|:-------------:|------------------------|-----------------------|--------------------------|
+|   ___NAME___  |   namePreprocessing()  |    wordTokenizer()    |     soundex()            |
+|   ___TEXT___  |  removeSpecialChars()  |    wordTokenizer()    |     soundex()            |
+| ___ADDRESS___ | addressPreprocessing() |    wordTokenizer()    |     soundex()            |
+|  ___EMAIL___  |     removeDomain()     |    nGramTokenizer()   |    equality()            |
+|  ___PHONE___  |     numericValue()     |    valueTokenizer()   |   phoneNumber()          |
+|  ___NUMBER___ | numberPreprocessing()  |    valueTokenizer()   |numberDifferenceRate()    |
+|  ___DATE___   | none()                 |    valueTokenizer()   |dateDifferenceWithinYear()|
 
 _Note: Since each element is unique in the way it should match, if you have a need to match a different element type than
  what is supported, please open a new [GitHub Issue](https://github.com/intuit/fuzzy-matcher/issues) and the community 
@@ -232,6 +234,7 @@ This allows you to change the entire behavior of how matches are applied at all 
 ### Element Configuration
 * __Value__ : String representation of the value to match
 * __Type__ : These are predefined elements, which applies relevant functions for "PreProcessing", "Tokenization" and "SimilarityMatch"
+* __Variance__: (Optional) To differentiate same element types in a document. eg. a document containing 2 NAME element one for "user" and one for "spouse"
 * __Threshold__ : A double value between 0.0 - 1.0 above which the element be considered as match.
 * __Weight__ : A value applied to an element to increase or decrease the document score.
     The default is 1.0, any value above that will increase the document score if that element is matched.

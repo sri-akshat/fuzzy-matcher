@@ -17,6 +17,9 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -67,7 +70,9 @@ public class MatchServiceTest {
     }
 
     public static Stream<Element> getOrderedElements(Set<Element> elements) {
-        List<Element> l = elements.stream().sorted(Comparator.comparing(Element::getType)).collect(Collectors.toList());
+        List<Element> l = elements.stream()
+                .sorted(Comparator.comparing(ele -> ele.getElementClassification().getElementType()))
+                .collect(Collectors.toList());
         return l.stream();
     }
 
@@ -449,6 +454,84 @@ public class MatchServiceTest {
                 .map(entry -> entry.getValue()).collect(Collectors.toList()).get(0).get(0).getResult(), 0.01);
     }
 
+    @Test
+    public void itShouldApplyMatchWithVariance() {
+        List<Document> inputData = new ArrayList<>();
+        inputData.add(new Document.Builder("1")
+                .addElement(new Element.Builder().setType(NAME).setVariance("self").setValue("Tom Kelly").createElement())
+                .createDocument());
+        inputData.add(new Document.Builder("2")
+                .addElement(new Element.Builder().setType(NAME).setVariance("self").setValue("tom kelly").createElement())
+                .createDocument());
+        Map<Document, List<Match<Document>>> result = matchService.applyMatch(inputData);
+        Assert.assertEquals(2, result.size());
+        Assert.assertThat(result.entrySet().stream()
+                        .map(entry -> entry.getKey().getKey()).collect(Collectors.toList()),
+                CoreMatchers.hasItems("1", "2"));
+    }
+
+    @Test
+    public void itShouldApplyMatchWithDifferentVariance() {
+        List<Document> inputData = new ArrayList<>();
+        inputData.add(new Document.Builder("1")
+                .addElement(new Element.Builder().setType(NAME).setVariance("self").setValue("Tom Kelly").createElement())
+                .createDocument());
+        inputData.add(new Document.Builder("2")
+                .addElement(new Element.Builder().setType(NAME).setVariance("spouse").setValue("tom kelly").createElement())
+                .createDocument());
+        Map<Document, List<Match<Document>>> result = matchService.applyMatch(inputData);
+        Assert.assertEquals(0, result.size());
+    }
+
+    @Test
+    public void itShouldApplyMatchWithNumber() {
+        List<String> numbers = Arrays.asList("23", "22", "10", "5", "str", "9", "11", "10.5", "23.5", "str");
+        AtomicInteger ai = new AtomicInteger(0);
+        List<Document> documentList = numbers.stream().map(num -> {
+            return new Document.Builder(Integer.toString(ai.incrementAndGet()))
+                    .addElement(new Element.Builder().setType(NUMBER).setValue(num).setThreshold(0.95).createElement())
+                    .createDocument();
+        }).collect(Collectors.toList());
+        Map<Document, List<Match<Document>>> result = matchService.applyMatch(documentList);
+        Assert.assertEquals(6, result.size());
+    }
+
+    @Test
+    public void itShouldApplyMatchWithDoubleType() {
+        List<Double> numbers = Arrays.asList(23D, 22D, 10D, 5D, 9D, 11D, 10.5, 23.5);
+        AtomicInteger ai = new AtomicInteger(0);
+        List<Document> documentList = numbers.stream().map(num -> {
+            return new Document.Builder(Integer.toString(ai.incrementAndGet()))
+                    .addElement(new Element.Builder().setType(NUMBER).setValue(num).setThreshold(0.95).createElement())
+                    .createDocument();
+        }).collect(Collectors.toList());
+        Map<Document, List<Match<Document>>> result = matchService.applyMatch(documentList);
+        Assert.assertEquals(6, result.size());
+    }
+
+    @Test
+    public void itShouldApplyMatchWithDate() {
+        List<Date> numbers = Arrays.asList(getDate("01/01/2020"), getDate("12/01/2020"), getDate("02/01/2020"));
+        AtomicInteger ai = new AtomicInteger(0);
+        List<Document> documentList = numbers.stream().map(num -> {
+            return new Document.Builder(Integer.toString(ai.incrementAndGet()))
+                    .addElement(new Element.Builder().setType(DATE).setValue(num).setThreshold(0.90).createElement())
+                    .createDocument();
+        }).collect(Collectors.toList());
+        Map<Document, List<Match<Document>>> result = matchService.applyMatch(documentList);
+        Assert.assertEquals(2, result.size());
+    }
+
+    private Date getDate(String val) {
+        DateFormat df = new SimpleDateFormat("MM/dd/yyyy");
+        try {
+            return df.parse(val);
+        } catch (ParseException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
     public static void writeOutput(Map<String, List<Match<Document>>> result) throws IOException {
         CSVWriter writer = new CSVWriter(new FileWriter("src/test/resources/output.csv"));
         writer.writeNext(new String[]{"Key", "Matched Key", "Score", "Name", "Address", "Email", "Phone"});
@@ -473,8 +556,8 @@ public class MatchServiceTest {
         writer.close();
     }
 
-    private List<Document> getTestData(Function<String, String> namePreProcessing,
-                                       Function<String, String> addressPreProcessing, double docThreshold) throws FileNotFoundException {
+    private List<Document> getTestData(Function<Object, Object> namePreProcessing,
+                                       Function<Object, Object> addressPreProcessing, double docThreshold) throws FileNotFoundException {
         return StreamSupport.stream(getCSVReader("test-data.csv").spliterator(), false).map(csv -> {
             return new Document.Builder(csv[0])
                     .addElement(new Element.Builder().setType(NAME).setValue(csv[1])

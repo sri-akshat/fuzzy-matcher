@@ -10,24 +10,24 @@ import java.util.stream.Stream;
  *
  * Elements are broken down into Token class using the TokenizerFunction
  */
-public class Token implements Matchable{
+public class Token implements Matchable {
 
-    public Token(String value, Element element) {
+    public Token(Object value, Element element) {
         this(value, element, false);
     }
 
-    public Token(String value, Element element, boolean nGramTokenized) {
+    public Token(Object value, Element element, boolean nGramTokenized) {
         this.value = value;
         this.element = element;
         this.nGramTokenized = nGramTokenized;
     }
 
-    private String value;
+    private Object value;
     private Element element;
     private boolean nGramTokenized;
     private Stream<Token> searchGroups;
 
-    public String getValue() {
+    public Object getValue() {
         return value;
     }
 

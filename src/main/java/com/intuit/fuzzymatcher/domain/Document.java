@@ -70,7 +70,12 @@ public class Document implements Matchable {
 
     public Stream<Element> getDistinctNonEmptyElements() {
         return getDistinctElements()
-                .filter(m -> !StringUtils.isEmpty(m.getPreProcessedValue()));
+                .filter(m -> {
+                    if (m.getPreProcessedValue() instanceof String) {
+                        return !StringUtils.isEmpty(m.getPreProcessedValue().toString());
+                    } else
+                    return m.getPreProcessedValue() != null;
+                });
     }
 
     private static <T> Predicate<T> distinctByKey(Function<? super T, ?> keyExtractor) {
@@ -82,10 +87,10 @@ public class Document implements Matchable {
     public long getChildCount(Matchable other) {
         if (other instanceof Document) {
             Document o = (Document) other;
-            List<ElementType> childrenType =  this.getPreProcessedElement().stream()
-                    .map(Element::getType).collect(Collectors.toList());
-            List<ElementType> oChildrenType =  o.getPreProcessedElement().stream()
-                    .map(Element::getType).collect(Collectors.toList());
+            List<ElementClassification> childrenType =  this.getPreProcessedElement().stream()
+                    .map(Element::getElementClassification).collect(Collectors.toList());
+            List<ElementClassification> oChildrenType =  o.getPreProcessedElement().stream()
+                    .map(Element::getElementClassification).collect(Collectors.toList());
             return CollectionUtils.union(childrenType, oChildrenType).size();
         }
         return 0;
@@ -96,10 +101,10 @@ public class Document implements Matchable {
     public long getUnmatchedChildCount(Matchable other) {
         if (other instanceof Document) {
             Document o = (Document) other;
-            List<ElementType> childrenType =  this.getPreProcessedElement().stream()
-                    .map(Element::getType).collect(Collectors.toList());
-            List<ElementType> oChildrenType =  o.getPreProcessedElement().stream()
-                    .map(Element::getType).collect(Collectors.toList());
+            List<ElementClassification> childrenType =  this.getPreProcessedElement().stream()
+                    .map(Element::getElementClassification).collect(Collectors.toList());
+            List<ElementClassification> oChildrenType =  o.getPreProcessedElement().stream()
+                    .map(Element::getElementClassification).collect(Collectors.toList());
             return CollectionUtils.disjunction(childrenType, oChildrenType).size();
         }
         return 0;
@@ -172,7 +177,8 @@ public class Document implements Matchable {
     }
 
     public List<Element> getOrderedElements(Set<Element> elements) {
-        return elements.stream().sorted(Comparator.comparing(Element::getType)).collect(Collectors.toList());
+        return elements.stream().sorted(Comparator.comparing(ele -> ele.getElementClassification().getElementType()))
+                .collect(Collectors.toList());
     }
 
     @Override

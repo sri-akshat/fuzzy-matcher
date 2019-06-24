@@ -4,8 +4,12 @@ import com.intuit.fuzzymatcher.function.ScoringFunction;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.AbstractMap;
+import java.util.Date;
+import java.util.List;
+import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.intuit.fuzzymatcher.function.PreProcessFunction.toLowerCase;
@@ -28,39 +32,42 @@ import static com.intuit.fuzzymatcher.function.PreProcessFunction.trim;
  */
 public class Element implements Matchable {
 
-    private String value;
+    private Object value;
     private double weight;
     private double threshold;
-    private ElementType type;
+    private ElementClassification elementClassification;
     private Document document;
-    private Function<String, String> preProcessFunction;
+    private Function<Object, Object> preProcessFunction;
     private Function<Element, Stream<Token>> tokenizerFunction;
     private BiFunction<Token, Token, Double> similarityMatchFunction;
     private Function<Match, Score> scoringFunction;
+    private List<Token> tokens;
 
-    private String preProcessedValue;
+    private Object preProcessedValue;
 
-    private static final Function<Match, Score> DEFAULT_ELEMENT_SCORING = ScoringFunction.getAverageScore();
+    private static final Function<Match, Score> DEFAULT_ELEMENT_SCORING = ScoringFunction.getSimpleAverageScore();
 
-    public Element(ElementType type, String value, double weight, double threshold,
-                   Function<String, String> preProcessFunction,
+    public Element(ElementType type, String variance, Object value, double weight, double threshold,
+                   Function<Object, Object> preProcessFunction,
                    Function<Element, Stream<Token>> tokenizerFunction,
-                   BiFunction<Token, Token, Double> similarityMatchFunction, Function<Match, Score> scoringFunction) {
+                   BiFunction<Token, Token, Double> similarityMatchFunction, Function<Match, Score> scoringFunction,
+                   Function<List<Token>, Stream<Match<Token>>> matchOptimizerFunction) {
         this.weight = weight;
-        this.type = type;
+        this.elementClassification = new ElementClassification(type, variance,
+                matchOptimizerFunction == null ? type.getMatchOptimizerFunction() : matchOptimizerFunction);
         this.value = value;
         this.threshold = threshold;
-        this.preProcessFunction = preProcessFunction;
-        this.tokenizerFunction = tokenizerFunction;
-        this.similarityMatchFunction = similarityMatchFunction;
-        this.scoringFunction = scoringFunction;
+        this.preProcessFunction = preProcessFunction == null ? type.getPreProcessFunction() : preProcessFunction;
+        this.tokenizerFunction = tokenizerFunction == null ? type.getTokenizerFunction() : tokenizerFunction;
+        this.similarityMatchFunction = similarityMatchFunction == null ? type.getSimilarityMatchFunction() : similarityMatchFunction;
+        this.scoringFunction = scoringFunction != null ? this.scoringFunction : DEFAULT_ELEMENT_SCORING;
     }
 
-    public ElementType getType() {
-        return type;
+    public ElementClassification getElementClassification() {
+        return elementClassification;
     }
 
-    public String getValue() {
+    public Object getValue() {
         return value;
     }
 
@@ -81,37 +88,50 @@ public class Element implements Matchable {
         this.document = document;
     }
 
-    public void setPreProcessedValue(String preProcessedValue) {
+    public void setPreProcessedValue(Object preProcessedValue) {
         this.preProcessedValue = preProcessedValue;
     }
 
-    public Function<String, String> getPreProcessFunction() {
-        return this.preProcessFunction != null ? this.preProcessFunction : this.type.getPreProcessFunction();
+    public Function<Object, Object> getPreProcessFunction() {
+        return this.preProcessFunction;
     }
 
-    public String getPreProcessedValue() {
+    public Object getPreProcessedValue() {
         if (this.preProcessedValue == null) {
-            setPreProcessedValue(getPreProcessFunction().andThen(trim()).andThen(toLowerCase()).apply(this.value));
+            if (this.value instanceof String) {
+                // Default String pre-processing
+                setPreProcessedValue(getPreProcessFunction().andThen(trim()).andThen(toLowerCase()).apply(this.value.toString()));
+            } else {
+                setPreProcessedValue(getPreProcessFunction().apply(this.value));
+            }
         }
         return this.preProcessedValue;
     }
 
     public AbstractMap.SimpleEntry getPreprocessedValueWithType() {
-        return new AbstractMap.SimpleEntry(this.getType(), this.getPreProcessedValue());
+        return new AbstractMap.SimpleEntry(this.getElementClassification(), this.getPreProcessedValue());
     }
 
     public Function<Element, Stream<Token>> getTokenizerFunction() {
-        return this.tokenizerFunction != null ? this.tokenizerFunction : this.type.getTokenizerFunction();
+        return this.tokenizerFunction;
     }
 
     public Stream<Token> getTokens() {
-        return getTokenizerFunction().apply(this).distinct();
+        if (this.tokens == null) {
+            this.tokens = getTokenizerFunction().apply(this).distinct().collect(Collectors.toList());
+        }
+        return this.tokens.stream();
     }
 
     public BiFunction<Token, Token, Double> getSimilarityMatchFunction() {
-        return this.similarityMatchFunction != null ? this.similarityMatchFunction : this.type.getSimilarityMatchFunction();
+        return this.similarityMatchFunction;
     }
 
+
+    /**
+     * This gets the Max number of tokens present between matching Elements.
+     * For Elements that do not have a balanced set of tokens, it can push the score down.
+     */
     @Override
     public long getChildCount(Matchable other) {
         if (other instanceof Element) {
@@ -125,8 +145,8 @@ public class Element implements Matchable {
     public long getUnmatchedChildCount(Matchable other) {
         if (other instanceof Element) {
             Element o = (Element) other;
-            long emptyChildren = this.getTokens().filter(token -> StringUtils.isEmpty(token.getValue())).count();
-            long oEmptyChildren = o.getTokens().filter(token -> StringUtils.isEmpty(token.getValue())).count();
+            long emptyChildren = this.getTokens().filter(token -> token == null || StringUtils.isEmpty(token.getValue().toString())).count();
+            long oEmptyChildren = o.getTokens().filter(token -> token == null || StringUtils.isEmpty(token.getValue().toString())).count();
             return Math.max(emptyChildren, oEmptyChildren);
         }
         return 0;
@@ -134,26 +154,43 @@ public class Element implements Matchable {
 
     @Override
     public Function<Match, Score> getScoringFunction() {
-        return this.scoringFunction != null ? this.scoringFunction : DEFAULT_ELEMENT_SCORING;
+        return this.scoringFunction;
     }
 
     public static class Builder {
         private ElementType type;
-        private String value;
+        private String variance;
+        private Object value;
         private double weight = 1.0;
         private double threshold = 0.3;
-        private Function<String, String> preProcessFunction;
+        private Function<Object, Object> preProcessFunction;
 
         private Function<Element, Stream<Token>> tokenizerFunction;
         private BiFunction<Token, Token, Double> similarityMatchFunction;
         private Function<Match, Score> scoringFunction;
+        private Function<List<Token>, Stream<Match<Token>>> matchOptimizerFunction;
 
         public Builder setType(ElementType type) {
             this.type = type;
             return this;
         }
 
+        public Builder setVariance(String variance) {
+            this.variance = variance;
+            return this;
+        }
+
         public Builder setValue(String value) {
+            this.value = value;
+            return this;
+        }
+
+        public Builder setValue(Double value) {
+            this.value = value;
+            return this;
+        }
+
+        public Builder setValue(Date value) {
             this.value = value;
             return this;
         }
@@ -168,7 +205,7 @@ public class Element implements Matchable {
             return this;
         }
 
-        public Builder setPreProcessingFunction(Function<String, String> preProcessingFunction) {
+        public Builder setPreProcessingFunction(Function<Object, Object> preProcessingFunction) {
             this.preProcessFunction = preProcessingFunction;
             return this;
         }
@@ -189,9 +226,14 @@ public class Element implements Matchable {
             return this;
         }
 
+        public Builder setMatchOptimizerFunction(Function<List<Token>, Stream<Match<Token>>> matchOptimizerFunction) {
+            this.matchOptimizerFunction = matchOptimizerFunction;
+            return this;
+        }
+
         public Element createElement() {
-            return new Element(type, value, weight, threshold, preProcessFunction, tokenizerFunction,
-                    similarityMatchFunction, scoringFunction);
+            return new Element(type, variance, value, weight, threshold, preProcessFunction, tokenizerFunction,
+                    similarityMatchFunction, scoringFunction, matchOptimizerFunction);
         }
     }
 
@@ -209,15 +251,16 @@ public class Element implements Matchable {
 
         Element element = (Element) o;
 
-        if (!value.equals(element.value)) return false;
-        if (type != element.type) return false;
-        return !(document != null ? !document.equals(element.document) : element.document != null);
+        if (value != null ? !value.equals(element.value) : element.value != null) return false;
+        if (elementClassification != null ? !elementClassification.equals(element.elementClassification) : element.elementClassification != null)
+            return false;
+        return document != null ? document.equals(element.document) : element.document == null;
     }
 
     @Override
     public int hashCode() {
-        int result = value.hashCode();
-        result = 31 * result + type.hashCode();
+        int result = value != null ? value.hashCode() : 0;
+        result = 31 * result + (elementClassification != null ? elementClassification.hashCode() : 0);
         result = 31 * result + (document != null ? document.hashCode() : 0);
         return result;
     }
